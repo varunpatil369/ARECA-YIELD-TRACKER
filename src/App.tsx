@@ -64,6 +64,7 @@ import {
   User
 } from 'firebase/auth';
 import { db, auth } from './firebase';
+import { Analytics } from '@vercel/analytics/react';
 
 // Register Chart.js components
 ChartJS.register(
@@ -1076,6 +1077,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <YieldTrackerApp />
+      <Analytics />
     </ErrorBoundary>
   );
 }
