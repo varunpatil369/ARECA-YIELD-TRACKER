@@ -214,6 +214,8 @@ function YieldTrackerApp() {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [showTroubleshooting, setShowTroubleshooting] = useState(false);
   
   // Data State
   const [records, setRecords] = useState<YieldRecord[]>([]);
@@ -291,11 +293,30 @@ function YieldTrackerApp() {
   // Login Handler
   const handleLogin = async () => {
     setIsLoggingIn(true);
+    setLoginError(null);
     try {
       const provider = new GoogleAuthProvider();
+      // Add a custom parameter to ensure the account selection is prompted
+      provider.setCustomParameters({ prompt: 'select_account' });
       await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.error("Login failed", error);
+    } catch (error: any) {
+      console.error("Full Login Error Object:", error);
+      let message = "Login failed. Please try again.";
+      
+      if (error.code === 'auth/popup-closed-by-user') {
+        message = "The sign-in popup was closed before completion. Please try again and keep the window open.";
+      } else if (error.code === 'auth/unauthorized-domain') {
+        message = "This domain is not authorized. Please add this URL to 'Authorized Domains' in Firebase Console > Authentication > Settings.";
+      } else if (error.code === 'auth/operation-not-allowed') {
+        message = "Google Sign-In is not enabled. Go to Firebase Console > Authentication > Sign-in method and enable Google.";
+      } else if (error.code === 'auth/invalid-api-key') {
+        message = "Invalid API Key. Please check your Firebase configuration.";
+      } else if (error.message && error.message.includes('requested action is invalid')) {
+        message = "The requested action is invalid. This often means Google Sign-In is not fully set up in the Firebase Console.";
+      } else if (error.message) {
+        message = error.message;
+      }
+      setLoginError(message);
     } finally {
       setIsLoggingIn(false);
     }
@@ -528,6 +549,59 @@ function YieldTrackerApp() {
             )}
             {isLoggingIn ? 'Signing in...' : 'Sign in with Google'}
           </button>
+
+          {loginError && (
+            <div className="mt-4 p-4 bg-red-50 border border-red-100 rounded-2xl flex flex-col gap-3">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-red-600 font-medium leading-relaxed">{loginError}</p>
+              </div>
+              <button 
+                onClick={() => setShowTroubleshooting(!showTroubleshooting)}
+                className="text-[10px] text-stone-500 font-bold uppercase tracking-widest hover:text-emerald-600 transition-colors text-left pl-8"
+              >
+                {showTroubleshooting ? 'Hide Troubleshooting' : 'Show Troubleshooting Guide ↓'}
+              </button>
+              
+              {showTroubleshooting && (
+                <div className="flex flex-col gap-3 pl-8 pt-2 border-t border-red-100/50">
+                  <div className="space-y-2">
+                    <p className="text-[10px] text-stone-500 font-bold uppercase">Step 1: Enable Google</p>
+                    <a 
+                      href="https://console.firebase.google.com/project/ai-studio-applet-webapp-69cab/authentication/providers" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-xs text-emerald-700 font-bold underline block"
+                    >
+                      Open Firebase Auth Providers →
+                    </a>
+                    <p className="text-[10px] text-stone-400 italic">Ensure "Google" is toggled to "Enabled".</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-[10px] text-stone-500 font-bold uppercase">Step 2: Authorize this Domain</p>
+                    <a 
+                      href="https://console.firebase.google.com/project/ai-studio-applet-webapp-69cab/authentication/settings" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-xs text-emerald-700 font-bold underline block"
+                    >
+                      Open Authorized Domains →
+                    </a>
+                    <p className="text-[10px] text-stone-400">Add this exact domain to the list:</p>
+                    <code className="text-[10px] bg-white px-2 py-1 rounded border border-stone-200 block w-fit font-mono text-emerald-800">
+                      {window.location.hostname}
+                    </code>
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-stone-500 font-bold uppercase">Step 3: Check Browser</p>
+                    <p className="text-[10px] text-stone-400">Disable Incognito mode or "Block 3rd party cookies" settings.</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           
           <div className="mt-8 pt-8 border-t border-stone-100 text-center">
             <p className="text-xs text-stone-400 leading-relaxed">
