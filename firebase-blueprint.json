@@ -1,0 +1,52 @@
+{
+  "entities": {
+    "YieldRecord": {
+      "title": "YieldRecord",
+      "description": "A record of arecanut harvest yield and price.",
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date",
+          "description": "The date of the harvest."
+        },
+        "quintal": {
+          "type": "number",
+          "description": "The amount in quintals."
+        },
+        "kg": {
+          "type": "number",
+          "description": "The amount in kilograms (0-99)."
+        },
+        "totalKg": {
+          "type": "number",
+          "description": "The total weight in kilograms."
+        },
+        "price": {
+          "type": "number",
+          "description": "The price per kilogram."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Additional notes about the harvest."
+        },
+        "uid": {
+          "type": "string",
+          "description": "The user ID of the record owner."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The timestamp when the record was created."
+        }
+      },
+      "required": ["date", "quintal", "kg", "totalKg", "price", "uid", "createdAt"]
+    }
+  },
+  "firestore": {
+    "arecaData": {
+      "schema": "YieldRecord",
+      "description": "Collection of harvest records."
+    }
+  }
+}

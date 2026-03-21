@@ -1,0 +1,98 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// This security rules file assumes the following data structures:
+//
+// Collection: arecaData
+// Document ID: auto-generated
+// Fields:
+//   - date: string (required, date format) - The date of the harvest.
+//   - quintal: number (required, >= 0) - The amount in quintals.
+//   - kg: number (required, 0-99) - The amount in kilograms.
+//   - totalKg: number (required, >= 0) - The total weight in kilograms.
+//   - price: number (required, >= 0) - The price per kilogram.
+//   - notes: string (optional, < 1000 chars) - Additional notes.
+//   - uid: string (required, immutable) - The user ID of the record owner.
+//   - createdAt: timestamp (required, immutable) - Creation timestamp.
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+    
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == request.auth.uid;
+    }
+    
+    function uidNotModified() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == resource.data.uid;
+    }
+    
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+    
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    
+    function isValidYieldRecord(data) {
+      return hasRequiredFields(['date', 'quintal', 'kg', 'totalKg', 'price', 'uid', 'createdAt']) &&
+             hasOnlyAllowedFields(['date', 'quintal', 'kg', 'totalKg', 'price', 'uid', 'createdAt', 'notes']) &&
+             isValidDateString(data.date) &&
+             data.quintal is number && data.quintal >= 0 &&
+             data.kg is number && data.kg >= 0 && data.kg < 100 &&
+             data.totalKg is number && data.totalKg >= 0 &&
+             data.price is number && data.price >= 0 &&
+             data.uid is string && data.uid == request.auth.uid &&
+             data.createdAt is timestamp &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() < 1000));
+    }
+
+    match /arecaData/{recordId} {
+      allow read: if isAuthenticated() && resource.data.uid == request.auth.uid;
+      
+      allow create: if isAuthenticated() && 
+                      isValidYieldRecord(request.resource.data) && 
+                      uidUnchanged();
+                      
+      allow update: if isAuthenticated() && 
+                      isDocOwner() && 
+                      isValidYieldRecord(request.resource.data) && 
+                      uidNotModified() &&
+                      request.resource.data.createdAt == resource.data.createdAt;
+                      
+      allow delete: if isAuthenticated() && isDocOwner();
+    }
+    
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+  }
+}

@@ -1,0 +1,1007 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect, useMemo, Component, ErrorInfo, ReactNode } from 'react';
+import { 
+  Plus, 
+  Trash2, 
+  Edit2, 
+  LogOut, 
+  LogIn, 
+  BarChart3,
+  List,
+  TrendingUp,
+  Package,
+  IndianRupee,
+  X,
+  Check,
+  Lock,
+  User as UserIcon,
+  Calendar,
+  Filter,
+  AlertTriangle,
+  Loader2
+} from 'lucide-react';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  PointElement,
+  LineElement,
+  ArcElement
+} from 'chart.js';
+import ChartDataLabels from 'chartjs-plugin-datalabels';
+import { Bar } from 'react-chartjs-2';
+import { format, getYear, getMonth, parseISO } from 'date-fns';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+// Firebase Imports
+import { 
+  collection, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  onSnapshot, 
+  query, 
+  where, 
+  orderBy,
+  serverTimestamp,
+  getDocFromServer
+} from 'firebase/firestore';
+import { 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  onAuthStateChanged, 
+  signOut,
+  User
+} from 'firebase/auth';
+import { db, auth } from './firebase';
+
+// Register Chart.js components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  PointElement,
+  LineElement,
+  ArcElement,
+  ChartDataLabels
+);
+
+// Utility for tailwind classes
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+// --- Error Handling ---
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends (React.Component as any) {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: any) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      let errorMessage = "Something went wrong.";
+      try {
+        const parsed = JSON.parse(this.state.error?.message || "");
+        if (parsed.error && parsed.error.includes("insufficient permissions")) {
+          errorMessage = "You don't have permission to perform this action. Please check your account settings.";
+        }
+      } catch (e) {
+        // Not a JSON error
+      }
+
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-stone-50 p-4">
+          <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center border border-stone-200">
+            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
+              <AlertTriangle className="w-8 h-8 text-red-500" />
+            </div>
+            <h2 className="text-xl font-bold text-stone-900 mb-2">Application Error</h2>
+            <p className="text-stone-500 mb-8">{errorMessage}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all"
+            >
+              Reload Application
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+// --- Types ---
+interface YieldRecord {
+  id: string;
+  date: string;
+  quintal: number;
+  kg: number;
+  totalKg: number;
+  price: number;
+  notes: string;
+  uid: string;
+  createdAt: any;
+}
+
+// --- Components ---
+
+function YieldTrackerApp() {
+  // Auth State
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  
+  // Data State
+  const [records, setRecords] = useState<YieldRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingRecord, setEditingRecord] = useState<YieldRecord | null>(null);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'records'>('dashboard');
+  const [recordToDelete, setRecordToDelete] = useState<string | null>(null);
+
+  // Filter State
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState<number | 'all'>('all');
+
+  // Form State
+  const [formData, setFormData] = useState({
+    date: format(new Date(), 'yyyy-MM-dd'),
+    quintal: 0,
+    kg: 0,
+    price: 0,
+    notes: ''
+  });
+
+  // Auth Listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setIsAuthReady(true);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Firestore Connection Test
+  useEffect(() => {
+    async function testConnection() {
+      try {
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (error) {
+        if(error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration.");
+        }
+      }
+    }
+    testConnection();
+  }, []);
+
+  // Firestore Real-time Listener
+  useEffect(() => {
+    if (!isAuthReady || !user) {
+      setRecords([]);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    const q = query(
+      collection(db, 'arecaData'),
+      where('uid', '==', user.uid),
+      orderBy('date', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as YieldRecord[];
+      setRecords(data);
+      setIsLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'arecaData');
+    });
+
+    return () => unsubscribe();
+  }, [isAuthReady, user]);
+
+  // Login Handler
+  const handleLogin = async () => {
+    setIsLoggingIn(true);
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error("Login failed", error);
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  // Logout Handler
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error("Logout failed", error);
+    }
+  };
+
+  // Form Handlers
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    
+    const quintal = parseInt(formData.quintal.toString()) || 0;
+    const kg = parseInt(formData.kg.toString()) || 0;
+    const totalKg = (quintal * 100) + kg;
+    const price = parseFloat(formData.price.toString()) || 0;
+
+    try {
+      if (editingRecord) {
+        // Update existing record
+        const recordRef = doc(db, 'arecaData', editingRecord.id);
+        await updateDoc(recordRef, {
+          date: formData.date,
+          quintal,
+          kg,
+          totalKg,
+          price,
+          notes: formData.notes
+        });
+      } else {
+        // Add new record
+        await addDoc(collection(db, 'arecaData'), {
+          date: formData.date,
+          quintal,
+          kg,
+          totalKg,
+          price,
+          notes: formData.notes,
+          uid: user.uid,
+          createdAt: serverTimestamp()
+        });
+      }
+      resetForm();
+    } catch (error) {
+      handleFirestoreError(error, editingRecord ? OperationType.UPDATE : OperationType.CREATE, 'arecaData');
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      date: format(new Date(), 'yyyy-MM-dd'),
+      quintal: 0,
+      kg: 0,
+      price: 0,
+      notes: ''
+    });
+    setEditingRecord(null);
+    setIsModalOpen(false);
+  };
+
+  const handleEdit = (record: YieldRecord) => {
+    setEditingRecord(record);
+    setFormData({
+      date: record.date,
+      quintal: record.quintal,
+      kg: record.kg,
+      price: record.price,
+      notes: record.notes
+    });
+    setIsModalOpen(true);
+  };
+
+  const handleDelete = (id: string) => {
+    setRecordToDelete(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!recordToDelete) return;
+    try {
+      await deleteDoc(doc(db, 'arecaData', recordToDelete));
+      setRecordToDelete(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `arecaData/${recordToDelete}`);
+    }
+  };
+
+  // --- Calculations ---
+  const convertToQuintalKg = (totalKg: number) => {
+    const q = Math.floor(totalKg / 100);
+    const k = totalKg % 100;
+    return `${q} quintal ${k} kg`;
+  };
+
+  const formatShortYield = (totalKg: number) => {
+    const q = Math.floor(totalKg / 100);
+    const k = totalKg % 100;
+    return `${q}Q ${k}Kg`;
+  };
+
+  // Filtered Records for Table
+  const filteredRecords = useMemo(() => {
+    return records.filter(r => {
+      const date = parseISO(r.date);
+      const yearMatch = getYear(date) === selectedYear;
+      const monthMatch = selectedMonth === 'all' || (getMonth(date) + 1) === selectedMonth;
+      return yearMatch && monthMatch;
+    }).sort((a, b) => b.date.localeCompare(a.date));
+  }, [records, selectedYear, selectedMonth]);
+
+  // Dashboard Summaries
+  const summaries = useMemo(() => {
+    // Yearly Summary: Total for selected year
+    const yearlyRecords = records.filter(r => getYear(parseISO(r.date)) === selectedYear);
+    const yearlyTotalKg = yearlyRecords.reduce((sum, r) => sum + r.totalKg, 0);
+    
+    // Monthly Summary: Filter by selectedYear AND selectedMonth
+    let monthlyTotalKg = 0;
+    if (selectedMonth !== 'all') {
+      monthlyTotalKg = yearlyRecords
+        .filter(r => (getMonth(parseISO(r.date)) + 1) === selectedMonth)
+        .reduce((sum, r) => sum + r.totalKg, 0);
+    }
+
+    return { 
+      yearlyTotalKg, 
+      monthlyTotalKg,
+      totalEntries: records.length 
+    };
+  }, [records, selectedYear, selectedMonth]);
+
+  // Chart Data: Yearly Trend
+  const yearlyChartData = useMemo(() => {
+    const yearsMap: { [year: string]: number } = {};
+    records.forEach(r => {
+      const year = getYear(parseISO(r.date)).toString();
+      yearsMap[year] = (yearsMap[year] || 0) + r.totalKg;
+    });
+
+    const sortedYears = Object.keys(yearsMap).sort();
+    return {
+      labels: sortedYears,
+      datasets: [{
+        label: 'Yearly Yield (Quintals)',
+        data: sortedYears.map(y => Math.round(yearsMap[y] / 100)),
+        fullData: sortedYears.map(y => yearsMap[y]),
+        backgroundColor: 'rgba(16, 185, 129, 0.7)',
+        borderColor: 'rgb(16, 185, 129)',
+        borderWidth: 2,
+        borderRadius: 12,
+        barThickness: 60,
+      }]
+    };
+  }, [records]);
+
+  // Chart Data: Monthly Distribution for Selected Year
+  const monthlyChartData = useMemo(() => {
+    const monthsMap = Array(12).fill(0);
+    records
+      .filter(r => getYear(parseISO(r.date)) === selectedYear)
+      .forEach(r => {
+        const monthIndex = getMonth(parseISO(r.date));
+        monthsMap[monthIndex] += r.totalKg;
+      });
+
+    return {
+      labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+      datasets: [{
+        label: 'Monthly Yield (Quintals)',
+        data: monthsMap.map(kg => Math.round(kg / 100)),
+        fullData: monthsMap,
+        backgroundColor: 'rgba(59, 130, 246, 0.7)',
+        borderColor: 'rgb(59, 130, 246)',
+        borderWidth: 2,
+        borderRadius: 12,
+        barThickness: 40,
+      }]
+    };
+  }, [records, selectedYear]);
+
+  // Unique Years for Dropdown
+  const availableYears = useMemo(() => {
+    const years: number[] = Array.from(new Set(records.map(r => getYear(parseISO(r.date)))));
+    const currentYear = new Date().getFullYear();
+    if (!years.includes(currentYear)) years.push(currentYear);
+    return years.sort((a, b) => b - a);
+  }, [records]);
+
+  // --- Render Login Page ---
+  if (!isAuthReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-stone-50">
+        <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-stone-50 p-4 font-sans">
+        <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 border border-stone-200">
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <TrendingUp className="w-8 h-8 text-emerald-600" />
+            </div>
+            <h1 className="text-2xl font-bold text-stone-900">Arecanut Yield Tracker</h1>
+            <p className="text-stone-500 text-sm mt-1">Sign in with Google to manage your harvest</p>
+          </div>
+
+          <button
+            onClick={handleLogin}
+            disabled={isLoggingIn}
+            className="w-full flex items-center justify-center gap-3 bg-white border-2 border-stone-100 hover:border-emerald-500 hover:bg-emerald-50 text-stone-700 font-bold py-3.5 rounded-2xl transition-all shadow-lg shadow-stone-100 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isLoggingIn ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
+            )}
+            {isLoggingIn ? 'Signing in...' : 'Sign in with Google'}
+          </button>
+          
+          <div className="mt-8 pt-8 border-t border-stone-100 text-center">
+            <p className="text-xs text-stone-400 leading-relaxed">
+              By signing in, you agree to our terms and conditions. Your data is securely stored in Google Cloud.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-stone-50 font-sans pb-20 lg:pb-8">
+      {/* Loading Overlay */}
+      {isLoading && records.length === 0 && (
+        <div className="fixed inset-0 bg-stone-50/80 backdrop-blur-sm z-50 flex items-center justify-center">
+          <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
+        </div>
+      )}
+
+      {/* Header */}
+      <header className="bg-white border-b border-stone-200 sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-6 h-6 text-emerald-600" />
+            <h1 className="text-lg font-bold text-stone-900">Yield Tracker</h1>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            <div className="hidden sm:flex items-center gap-2 text-stone-500 text-sm">
+              <img src={user.photoURL || ""} alt={user.displayName || ""} className="w-6 h-6 rounded-full" />
+              <span className="font-medium">{user.displayName}</span>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-4 py-2 text-stone-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all font-semibold text-sm"
+            >
+              <LogOut className="w-4 h-4" />
+              Logout
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        {/* Filters & Navigation */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-8">
+          <div className="flex bg-stone-200 p-1 rounded-2xl w-fit">
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              className={cn(
+                "flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all",
+                activeTab === 'dashboard' ? "bg-white text-emerald-700 shadow-sm" : "text-stone-600 hover:text-stone-900"
+              )}
+            >
+              <BarChart3 className="w-4 h-4" />
+              Dashboard
+            </button>
+            <button
+              onClick={() => setActiveTab('records')}
+              className={cn(
+                "flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all",
+                activeTab === 'records' ? "bg-white text-emerald-700 shadow-sm" : "text-stone-600 hover:text-stone-900"
+              )}
+            >
+              <List className="w-4 h-4" />
+              Records
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2 bg-white border border-stone-200 rounded-xl px-3 py-1.5">
+              <Filter className="w-4 h-4 text-stone-400" />
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                className="bg-transparent text-sm font-bold text-stone-700 focus:outline-none"
+              >
+                {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+              <div className="w-px h-4 bg-stone-200 mx-1"></div>
+              <select
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
+                className="bg-transparent text-sm font-bold text-stone-700 focus:outline-none"
+              >
+                <option value="all">All Months</option>
+                {Array.from({ length: 12 }, (_, i) => (
+                  <option key={i + 1} value={i + 1}>{format(new Date(2000, i, 1), 'MMMM')}</option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-emerald-100"
+            >
+              <Plus className="w-5 h-5" />
+              Add Harvest
+            </button>
+          </div>
+        </div>
+
+        {activeTab === 'dashboard' ? (
+          <div className="space-y-8">
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="p-3 bg-emerald-50 rounded-2xl">
+                    <Package className="w-6 h-6 text-emerald-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-stone-500 text-sm uppercase tracking-wider">Yearly Yield ({selectedYear})</h3>
+                    <p className="text-2xl font-bold text-stone-900">{convertToQuintalKg(summaries.yearlyTotalKg)}</p>
+                  </div>
+                </div>
+                <div className="w-full bg-stone-100 h-2 rounded-full overflow-hidden">
+                  <div className="bg-emerald-500 h-full w-full opacity-20"></div>
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="p-3 bg-blue-50 rounded-2xl">
+                    <Calendar className="w-6 h-6 text-blue-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-stone-500 text-sm uppercase tracking-wider">
+                      Monthly Summary {selectedMonth !== 'all' ? `(${format(new Date(2000, selectedMonth - 1, 1), 'MMM')})` : ''}
+                    </h3>
+                    <p className="text-2xl font-bold text-stone-900">
+                      {selectedMonth === 'all' ? 'Select a month' : convertToQuintalKg(summaries.monthlyTotalKg)}
+                    </p>
+                  </div>
+                </div>
+                <div className="w-full bg-stone-100 h-2 rounded-full overflow-hidden">
+                  <div className="bg-blue-500 h-full w-full opacity-20"></div>
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="p-3 bg-stone-50 rounded-2xl">
+                    <List className="w-6 h-6 text-stone-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-stone-500 text-sm uppercase tracking-wider">Total Entries</h3>
+                    <p className="text-2xl font-bold text-stone-900">{summaries.totalEntries} Records</p>
+                  </div>
+                </div>
+                <div className="w-full bg-stone-100 h-2 rounded-full overflow-hidden">
+                  <div className="bg-stone-500 h-full w-full opacity-20"></div>
+                </div>
+              </div>
+            </div>
+
+            {/* Charts Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm">
+                <h3 className="text-lg font-bold text-stone-900 mb-6 flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-emerald-600" />
+                  Yearly Yield Trend
+                </h3>
+                <div className="h-[350px]">
+                  <Bar 
+                    data={yearlyChartData} 
+                    options={{ 
+                      responsive: true, 
+                      maintainAspectRatio: false,
+                      plugins: { 
+                        legend: { display: false },
+                        tooltip: {
+                          callbacks: {
+                            label: (context: any) => {
+                              const totalKg = context.dataset.fullData[context.dataIndex];
+                              return `Yield: ${convertToQuintalKg(totalKg)}`;
+                            }
+                          }
+                        },
+                        datalabels: {
+                          anchor: 'end',
+                          align: 'top',
+                          formatter: (value, context: any) => {
+                            const totalKg = context.dataset.fullData[context.dataIndex];
+                            return totalKg > 0 ? formatShortYield(totalKg) : '';
+                          },
+                          font: { weight: 'bold', size: 12 },
+                          color: '#065f46'
+                        }
+                      },
+                      scales: { 
+                        y: { 
+                          beginAtZero: true, 
+                          grid: { color: '#f5f5f4' },
+                          title: { display: true, text: 'Yield (Quintals)', font: { weight: 'bold' } }
+                        }, 
+                        x: { grid: { display: false } } 
+                      }
+                    }} 
+                  />
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm">
+                <h3 className="text-lg font-bold text-stone-900 mb-6 flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-blue-600" />
+                  Monthly Distribution ({selectedYear})
+                </h3>
+                <div className="h-[350px]">
+                  <Bar 
+                    data={monthlyChartData} 
+                    options={{ 
+                      responsive: true, 
+                      maintainAspectRatio: false,
+                      plugins: { 
+                        legend: { display: false },
+                        tooltip: {
+                          callbacks: {
+                            label: (context: any) => {
+                              const totalKg = context.dataset.fullData[context.dataIndex];
+                              return `Yield: ${convertToQuintalKg(totalKg)}`;
+                            }
+                          }
+                        },
+                        datalabels: {
+                          anchor: 'end',
+                          align: 'top',
+                          formatter: (value, context: any) => {
+                            const totalKg = context.dataset.fullData[context.dataIndex];
+                            return totalKg > 0 ? formatShortYield(totalKg) : '';
+                          },
+                          font: { weight: 'bold', size: 10 },
+                          color: '#1e40af'
+                        }
+                      },
+                      scales: { 
+                        y: { 
+                          beginAtZero: true, 
+                          grid: { color: '#f5f5f4' },
+                          title: { display: true, text: 'Yield (Quintals)', font: { weight: 'bold' } }
+                        }, 
+                        x: { grid: { display: false } } 
+                      }
+                    }} 
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-stone-900">Harvest Records</h2>
+              <p className="text-stone-500 text-sm font-medium">
+                Showing {filteredRecords.length} entries for {selectedMonth === 'all' ? 'All Months' : format(new Date(2000, selectedMonth - 1, 1), 'MMMM')} {selectedYear}
+              </p>
+            </div>
+
+            <div className="bg-white rounded-3xl border border-stone-200 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-stone-50 border-b border-stone-200">
+                      <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-wider">Date</th>
+                      <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-wider">Yield</th>
+                      <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-wider">Price/Kg</th>
+                      <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-wider">Notes</th>
+                      <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-wider text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100">
+                    {filteredRecords.length > 0 ? (
+                      filteredRecords.map((record) => (
+                        <tr key={record.id} className="hover:bg-emerald-50/30 transition-colors group">
+                          <td className="px-6 py-4 whitespace-nowrap text-stone-600 font-medium">
+                            {format(parseISO(record.date), 'dd MMM yyyy')}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="font-bold text-stone-900">{convertToQuintalKg(record.totalKg)}</span>
+                            <div className="text-xs text-stone-400">{record.totalKg} kg total</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-stone-600">
+                            ₹{record.price}
+                          </td>
+                          <td className="px-6 py-4 max-w-xs truncate text-stone-500 italic text-sm">
+                            {record.notes || '-'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right">
+                            <div className="flex items-center justify-end gap-2 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={() => handleEdit(record)}
+                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
+                                title="Edit Record"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDelete(record.id)}
+                                className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                                title="Delete Record"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-12 text-center text-stone-400">
+                          <div className="flex flex-col items-center gap-2">
+                            <Package className="w-8 h-8 opacity-20" />
+                            <p>No harvest records found for the selected filters.</p>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* Add/Edit Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-[2rem] w-full max-w-lg shadow-2xl border border-stone-100 overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="px-8 py-6 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">
+              <h2 className="text-xl font-bold text-stone-900">
+                {editingRecord ? 'Edit Harvest Record' : 'Add New Harvest'}
+              </h2>
+              <button 
+                onClick={resetForm}
+                className="p-2 hover:bg-stone-200 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5 text-stone-500" />
+              </button>
+            </div>
+            
+            <form onSubmit={handleSubmit} className="p-8 space-y-6">
+              <div className="grid grid-cols-1 gap-6">
+                <div>
+                  <label className="block text-sm font-semibold text-stone-600 mb-2 uppercase tracking-wider">Harvest Date</label>
+                  <input
+                    type="date"
+                    name="date"
+                    required
+                    value={formData.date}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 rounded-2xl border border-stone-200 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all bg-stone-50"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-stone-600 mb-2 uppercase tracking-wider">Quintals</label>
+                    <input
+                      type="number"
+                      name="quintal"
+                      min="0"
+                      required
+                      value={formData.quintal}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-3 rounded-2xl border border-stone-200 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all bg-stone-50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-stone-600 mb-2 uppercase tracking-wider">Kilograms</label>
+                    <input
+                      type="number"
+                      name="kg"
+                      min="0"
+                      max="99"
+                      required
+                      value={formData.kg}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-3 rounded-2xl border border-stone-200 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all bg-stone-50"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-stone-600 mb-2 uppercase tracking-wider">Price per Kg (₹)</label>
+                  <input
+                    type="number"
+                    name="price"
+                    min="0"
+                    step="0.01"
+                    required
+                    value={formData.price}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 rounded-2xl border border-stone-200 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all bg-stone-50"
+                  />
+                </div>
+
+                <div className="bg-emerald-50 p-4 rounded-2xl flex items-center justify-between border border-emerald-100">
+                  <span className="text-sm font-semibold text-emerald-700 uppercase tracking-wider">Total Weight:</span>
+                  <span className="text-lg font-bold text-emerald-800">
+                    {convertToQuintalKg((parseInt(formData.quintal.toString()) || 0) * 100 + (parseInt(formData.kg.toString()) || 0))}
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-stone-600 mb-2 uppercase tracking-wider">Notes (Optional)</label>
+                  <textarea
+                    name="notes"
+                    value={formData.notes}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 rounded-2xl border border-stone-200 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all h-24 resize-none bg-stone-50"
+                    placeholder="Add any details about the harvest..."
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-4 pt-4">
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  className="flex-1 px-6 py-4 rounded-2xl border border-stone-200 text-stone-600 font-bold hover:bg-stone-50 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-6 py-4 rounded-2xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 shadow-lg shadow-emerald-200 transition-all active:scale-[0.98]"
+                >
+                  {editingRecord ? 'Update Record' : 'Save Record'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Delete Confirmation Modal */}
+      {recordToDelete && (
+        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
+          <div className="bg-white rounded-[2rem] w-full max-w-sm shadow-2xl border border-stone-100 overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-8 text-center">
+              <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                <AlertTriangle className="w-8 h-8 text-red-500" />
+              </div>
+              <h3 className="text-xl font-bold text-stone-900 mb-2">Confirm Delete</h3>
+              <p className="text-stone-500 mb-8">
+                Are you sure you want to delete this record? This action cannot be undone.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setRecordToDelete(null)}
+                  className="flex-1 px-6 py-3 rounded-xl border border-stone-200 text-stone-600 font-bold hover:bg-stone-50 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  className="flex-1 px-6 py-3 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 shadow-lg shadow-red-200 transition-all active:scale-[0.98]"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <YieldTrackerApp />
+    </ErrorBoundary>
+  );
+}

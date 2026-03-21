@@ -1,0 +1,5 @@
+{
+  "name": "Arecanut Yield Tracker",
+  "description": "A comprehensive web application for tracking arecanut yield in quintals and kg, with monthly/yearly dashboards, charts, and data export features.",
+  "requestFramePermissions": []
+}
