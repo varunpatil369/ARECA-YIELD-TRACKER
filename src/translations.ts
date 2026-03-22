@@ -55,7 +55,18 @@ export const translations = {
     step3: 'Step 3: Check Browser',
     browserNote: 'Disable Incognito mode or "Block 3rd party cookies" settings.',
     quintalLabel: 'quintal',
-    kgLabel: 'kg'
+    kgLabel: 'kg',
+    calculator: 'Calculator',
+    wetToDryCalculator: 'Wet to Dry Calculator',
+    wetArecanut: 'Wet Arecanut',
+    dryArecanut: 'Dry Arecanut',
+    dealerRate: 'Dealer Rate (kg/Q)',
+    customRate: 'Custom Rate',
+    calculate: 'Calculate',
+    result: 'Result',
+    dryYield: 'Dry Yield',
+    enterWetWeight: 'Enter Wet Weight',
+    selectRate: 'Select Rate'
   },
   kn: {
     appTitle: 'ಅಡಿಕೆ ಇಳುವರಿ ಟ್ರ್ಯಾಕರ್',
@@ -111,6 +122,17 @@ export const translations = {
     step3: 'ಹಂತ 3: ಬ್ರೌಸರ್ ಪರಿಶೀಲಿಸಿ',
     browserNote: 'ಇನ್ಕಾಗ್ನಿಟೋ ಮೋಡ್ ಅಥವಾ "Block 3rd party cookies" ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ನಿಷ್ಕ್ರಿಯಗೊಳಿಸಿ.',
     quintalLabel: 'ಕ್ವಿಂಟಾಲ್',
-    kgLabel: 'ಕೆಜಿ'
+    kgLabel: 'ಕೆಜಿ',
+    calculator: 'ಕ್ಯಾಲ್ಕುಲೇಟರ್',
+    wetToDryCalculator: 'ಹಸಿ-ಒಣ ಅಡಿಕೆ ಲೆಕ್ಕಾಚಾರ',
+    wetArecanut: 'ಹಸಿ ಅಡಿಕೆ',
+    dryArecanut: 'ಒಣ ಅಡಿಕೆ',
+    dealerRate: 'ಡೀಲರ್ ದರ (ಕೆಜಿ/ಕ್ವಿಂ)',
+    customRate: 'ಕಸ್ಟಮ್ ದರ',
+    calculate: 'ಲೆಕ್ಕ ಹಾಕಿ',
+    result: 'ಫಲಿತಾಂಶ',
+    dryYield: 'ಒಣ ಇಳುವರಿ',
+    enterWetWeight: 'ಹಸಿ ಅಡಿಕೆ ತೂಕ ನಮೂದಿಸಿ',
+    selectRate: 'ದರ ಆಯ್ಕೆ ಮಾಡಿ'
   }
 };

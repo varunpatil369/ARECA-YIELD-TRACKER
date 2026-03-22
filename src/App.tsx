@@ -22,7 +22,8 @@ import {
   Calendar,
   Filter,
   AlertTriangle,
-  Loader2
+  Loader2,
+  Calculator
 } from 'lucide-react';
 import {
   Chart as ChartJS,
@@ -215,6 +216,146 @@ interface YieldRecord {
 
 // --- Components ---
 
+const WetToDryCalculator = ({ t }: { t: any }) => {
+  const [wetQuintal, setWetQuintal] = useState<string>('');
+  const [wetKg, setWetKg] = useState<string>('');
+  const [rate, setRate] = useState<string>('13');
+  const [customRate, setCustomRate] = useState<string>('');
+
+  const handleWetQuintalChange = (val: string) => {
+    if (val === '') {
+      setWetQuintal('');
+      return;
+    }
+    const num = parseFloat(val);
+    if (num < 0) setWetQuintal('0');
+    else setWetQuintal(val);
+  };
+
+  const handleWetKgChange = (val: string) => {
+    if (val === '') {
+      setWetKg('');
+      return;
+    }
+    let num = parseFloat(val);
+    if (num < 0) num = 0;
+    if (num > 99) num = 99;
+    setWetKg(num.toString());
+  };
+
+  const handleCustomRateChange = (val: string) => {
+    if (val === '') {
+      setCustomRate('');
+      return;
+    }
+    const num = parseFloat(val);
+    if (num < 0) setCustomRate('0');
+    else setCustomRate(val);
+  };
+
+  const finalRate = rate === 'custom' ? parseFloat(customRate) || 0 : parseFloat(rate);
+
+  const result = useMemo(() => {
+    const wQ = parseFloat(wetQuintal) || 0;
+    const wK = parseFloat(wetKg) || 0;
+    
+    if (wQ === 0 && wK === 0) return null;
+
+    const totalWetQuintal = wQ + (wK / 100);
+    const dryKg = totalWetQuintal * finalRate;
+    
+    const dryQuintal = Math.floor(dryKg / 100);
+    const remainingKg = (dryKg % 100).toFixed(2);
+
+    return { dryQuintal, remainingKg };
+  }, [wetQuintal, wetKg, finalRate]);
+
+  return (
+    <div className="bg-white p-6 sm:p-8 rounded-3xl border border-stone-200 shadow-sm space-y-6 animate-in fade-in duration-500">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="p-2 bg-emerald-50 rounded-xl">
+          <Calculator className="w-5 h-5 text-emerald-600" />
+        </div>
+        <h2 className="text-xl font-bold text-stone-900">{t.wetToDryCalculator}</h2>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6">
+        <div>
+          <label className="block text-[10px] sm:text-xs font-bold text-stone-400 mb-2 uppercase tracking-widest">{t.wetArecanut} ({t.enterWetWeight})</label>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="relative">
+              <input
+                type="number"
+                min="0"
+                placeholder={t.quintal}
+                value={wetQuintal}
+                onChange={(e) => handleWetQuintalChange(e.target.value)}
+                className="w-full px-4 py-4 rounded-2xl border border-stone-200 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all bg-stone-50 text-lg font-bold"
+              />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-stone-400 uppercase">{t.quintalLabel}</span>
+            </div>
+            <div className="relative">
+              <input
+                type="number"
+                min="0"
+                max="99"
+                placeholder={t.kg}
+                value={wetKg}
+                onChange={(e) => handleWetKgChange(e.target.value)}
+                className="w-full px-4 py-4 rounded-2xl border border-stone-200 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all bg-stone-50 text-lg font-bold"
+              />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-stone-400 uppercase">{t.kgLabel}</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-[10px] sm:text-xs font-bold text-stone-400 mb-2 uppercase tracking-widest">{t.dealerRate} ({t.selectRate})</label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <select
+              value={rate}
+              onChange={(e) => setRate(e.target.value)}
+              className="w-full px-4 py-4 rounded-2xl border border-stone-200 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all bg-stone-50 text-lg font-bold"
+            >
+              {[11, 12, 13, 14, 15].map(r => (
+                <option key={r} value={r}>{r} {t.kgLabel}</option>
+              ))}
+              <option value="custom">{t.customRate}</option>
+            </select>
+
+            {rate === 'custom' && (
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder={t.customRate}
+                  value={customRate}
+                  onChange={(e) => handleCustomRateChange(e.target.value)}
+                  className="w-full px-4 py-4 rounded-2xl border border-stone-200 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all bg-stone-50 text-lg font-bold"
+                />
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-stone-400 uppercase">{t.kgLabel}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {result && (
+          <div className="mt-4 p-6 bg-emerald-600 rounded-[2rem] text-white shadow-xl shadow-emerald-100 animate-in fade-in slide-in-from-top-4 duration-300">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-80 mb-2">{t.dryYield}</p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-4xl font-black">{result.dryQuintal}</span>
+              <span className="text-xl font-bold opacity-80">{t.quintalLabel}</span>
+              <span className="text-4xl font-black ml-4">{result.remainingKg}</span>
+              <span className="text-xl font-bold opacity-80">{t.kgLabel}</span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 function YieldTrackerApp() {
   // --- Language State ---
   const [language, setLanguage] = useState<Language>(() => {
@@ -263,7 +404,7 @@ function YieldTrackerApp() {
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<YieldRecord | null>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'records'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'records' | 'calculator'>('dashboard');
   const [recordToDelete, setRecordToDelete] = useState<string | null>(null);
 
   // Filter State
@@ -736,6 +877,16 @@ function YieldTrackerApp() {
                 <List className="w-4 h-4" />
                 {t.records}
               </button>
+              <button
+                onClick={() => setActiveTab('calculator')}
+                className={cn(
+                  "flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-3 sm:py-2.5 rounded-xl text-sm font-bold transition-all min-h-[44px]",
+                  activeTab === 'calculator' ? "bg-white text-emerald-700 shadow-sm" : "text-stone-600 hover:text-stone-900"
+                )}
+              >
+                <Calculator className="w-4 h-4" />
+                {t.calculator}
+              </button>
             </div>
 
             <button
@@ -943,7 +1094,7 @@ function YieldTrackerApp() {
               </div>
             </div>
           </div>
-        ) : (
+        ) : activeTab === 'records' ? (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <h2 className="text-xl sm:text-2xl font-bold text-stone-900">{t.records}</h2>
@@ -1070,6 +1221,10 @@ function YieldTrackerApp() {
                 </div>
               )}
             </div>
+          </div>
+        ) : (
+          <div className="max-w-2xl mx-auto">
+            <WetToDryCalculator t={t} />
           </div>
         )}
       </main>
