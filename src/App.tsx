@@ -39,8 +39,12 @@ import {
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 import { Bar } from 'react-chartjs-2';
 import { format, getYear, getMonth, parseISO } from 'date-fns';
+import { enUS, kn } from 'date-fns/locale';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+
+// Translations
+import { translations, Language } from './translations';
 
 // Firebase Imports
 import { 
@@ -161,11 +165,13 @@ class ErrorBoundary extends (React.Component as any) {
 
   render() {
     if (this.state.hasError) {
-      let errorMessage = "Something went wrong.";
+      const savedLang = localStorage.getItem('app_language') as Language || 'en';
+      const t = translations[savedLang];
+      let errorMessage = t.somethingWentWrong;
       try {
         const parsed = JSON.parse(this.state.error?.message || "");
         if (parsed.error && parsed.error.includes("insufficient permissions")) {
-          errorMessage = "You don't have permission to perform this action. Please check your account settings.";
+          errorMessage = t.permissionError;
         }
       } catch (e) {
         // Not a JSON error
@@ -177,13 +183,13 @@ class ErrorBoundary extends (React.Component as any) {
             <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
               <AlertTriangle className="w-8 h-8 text-red-500" />
             </div>
-            <h2 className="text-xl font-bold text-stone-900 mb-2">Application Error</h2>
+            <h2 className="text-xl font-bold text-stone-900 mb-2">{t.appError}</h2>
             <p className="text-stone-500 mb-8">{errorMessage}</p>
             <button
               onClick={() => window.location.reload()}
               className="w-full px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all"
             >
-              Reload Application
+              {t.reloadApp}
             </button>
           </div>
         </div>
@@ -210,6 +216,20 @@ interface YieldRecord {
 // --- Components ---
 
 function YieldTrackerApp() {
+  // --- Language State ---
+  const [language, setLanguage] = useState<Language>(() => {
+    return (localStorage.getItem('app_language') as Language) || 'en';
+  });
+
+  const t = translations[language];
+  const dateLocale = language === 'kn' ? kn : enUS;
+
+  const toggleLanguage = () => {
+    const newLang = language === 'en' ? 'kn' : 'en';
+    setLanguage(newLang);
+    localStorage.setItem('app_language', newLang);
+  };
+
   // --- Season Logic ---
   const getSeasonYear = (dateStr: string) => {
     const date = parseISO(dateStr);
@@ -440,13 +460,13 @@ function YieldTrackerApp() {
   const convertToQuintalKg = (totalKg: number) => {
     const q = Math.floor(totalKg / 100);
     const k = totalKg % 100;
-    return `${q} quintal ${k} kg`;
+    return `${q} ${t.quintalLabel} ${k} ${t.kgLabel}`;
   };
 
   const formatShortYield = (totalKg: number) => {
     const q = Math.floor(totalKg / 100);
     const k = totalKg % 100;
-    return `${q}Q ${k}Kg`;
+    return `${q}Q ${k}kg`;
   };
 
   // Filtered Records for Table
@@ -472,10 +492,22 @@ function YieldTrackerApp() {
         .reduce((sum, r) => sum + r.totalKg, 0);
     }
 
+    // Prediction: Average of last 3 seasons
+    const seasonsMap: { [season: string]: number } = {};
+    records.forEach(r => {
+      const season = getSeasonYear(r.date);
+      seasonsMap[season] = (seasonsMap[season] || 0) + r.totalKg;
+    });
+    const sortedSeasons = Object.keys(seasonsMap).sort();
+    const lastThreeSeasons = sortedSeasons.slice(-3);
+    const averageYieldKg = lastThreeSeasons.length > 0 
+      ? lastThreeSeasons.reduce((sum, s) => sum + seasonsMap[s], 0) / lastThreeSeasons.length 
+      : 0;
+
     return { 
       seasonTotalKg, 
       monthlyTotalKg,
-      totalEntries: records.length 
+      predictedYieldKg: averageYieldKg
     };
   }, [records, selectedSeason, selectedMonth]);
 
@@ -491,8 +523,8 @@ function YieldTrackerApp() {
     return {
       labels: sortedSeasons,
       datasets: [{
-        label: 'Season Yield (Quintals)',
-        data: sortedSeasons.map(s => Math.round(seasonsMap[s] / 100)),
+        label: t.seasonYieldQuintals,
+        data: sortedSeasons.map(s => seasonsMap[s] / 100),
         fullData: sortedSeasons.map(s => seasonsMap[s]),
         backgroundColor: 'rgba(16, 185, 129, 0.7)',
         borderColor: 'rgb(16, 185, 129)',
@@ -501,7 +533,7 @@ function YieldTrackerApp() {
         barThickness: 60,
       }]
     };
-  }, [records]);
+  }, [records, t]);
 
   // Chart Data: Monthly Distribution for Selected Season
   const monthlyChartData = useMemo(() => {
@@ -519,11 +551,16 @@ function YieldTrackerApp() {
         }
       });
 
+    const labels = ['Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May'].map((_, i) => {
+      const monthDate = new Date(2000, seasonMonths[i], 1);
+      return format(monthDate, 'MMM', { locale: dateLocale });
+    });
+
     return {
-      labels: ['Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May'],
+      labels,
       datasets: [{
-        label: 'Monthly Yield (Quintals)',
-        data: monthsMap.map(kg => Math.round(kg / 100)),
+        label: t.monthlyYieldQuintals,
+        data: monthsMap.map(kg => kg / 100),
         fullData: monthsMap,
         backgroundColor: 'rgba(59, 130, 246, 0.7)',
         borderColor: 'rgb(59, 130, 246)',
@@ -532,7 +569,7 @@ function YieldTrackerApp() {
         barThickness: 40,
       }]
     };
-  }, [records, selectedSeason]);
+  }, [records, selectedSeason, t, dateLocale]);
 
   // Unique Seasons for Dropdown
   const availableSeasons = useMemo(() => {
@@ -640,7 +677,7 @@ function YieldTrackerApp() {
   }
 
   return (
-    <div className="min-h-screen bg-stone-50 font-sans pb-20 lg:pb-8">
+    <div className="min-h-screen bg-stone-50 font-sans pb-24 lg:pb-8">
       {/* Loading Overlay */}
       {isLoading && records.length === 0 && (
         <div className="fixed inset-0 bg-stone-50/80 backdrop-blur-sm z-50 flex items-center justify-center">
@@ -649,228 +686,256 @@ function YieldTrackerApp() {
       )}
 
       {/* Header */}
-      <header className="bg-white border-b border-stone-200 sticky top-0 z-30">
+      <header className="bg-white border-b border-stone-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <TrendingUp className="w-6 h-6 text-emerald-600" />
-            <h1 className="text-lg font-bold text-stone-900">Yield Tracker</h1>
+            <h1 className="text-base sm:text-lg font-bold text-stone-900 truncate max-w-[150px] sm:max-w-none">{t.appTitle}</h1>
           </div>
           
-          <div className="flex items-center gap-4">
-            <div className="hidden sm:flex items-center gap-2 text-stone-500 text-sm">
-              <img src={user.photoURL || ""} alt={user.displayName || ""} className="w-6 h-6 rounded-full" />
-              <span className="font-medium">{user.displayName}</span>
-            </div>
+          <div className="flex items-center gap-2 sm:gap-4">
+            <button
+              onClick={toggleLanguage}
+              className="px-2.5 py-1.5 bg-stone-100 hover:bg-stone-200 rounded-lg text-[10px] sm:text-xs font-bold text-stone-600 transition-all border border-stone-200 active:scale-95"
+            >
+              {language === 'en' ? 'ಕನ್ನಡ' : 'English'}
+            </button>
             <button
               onClick={handleLogout}
-              className="flex items-center gap-2 px-4 py-2 text-stone-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all font-semibold text-sm"
+              className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 text-stone-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all font-semibold text-xs sm:text-sm min-h-[40px]"
             >
               <LogOut className="w-4 h-4" />
-              Logout
+              <span className="hidden xs:inline">{t.logout}</span>
             </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-8">
+      <main className="max-w-7xl mx-auto px-4 py-6 sm:py-8">
         {/* Filters & Navigation */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-8">
-          <div className="flex bg-stone-200 p-1 rounded-2xl w-fit">
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className={cn(
-                "flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all",
-                activeTab === 'dashboard' ? "bg-white text-emerald-700 shadow-sm" : "text-stone-600 hover:text-stone-900"
-              )}
-            >
-              <BarChart3 className="w-4 h-4" />
-              Dashboard
-            </button>
-            <button
-              onClick={() => setActiveTab('records')}
-              className={cn(
-                "flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all",
-                activeTab === 'records' ? "bg-white text-emerald-700 shadow-sm" : "text-stone-600 hover:text-stone-900"
-              )}
-            >
-              <List className="w-4 h-4" />
-              Records
-            </button>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2 bg-white border border-stone-200 rounded-xl px-3 py-1.5">
-              <Filter className="w-4 h-4 text-stone-400" />
-              <select
-                value={selectedSeason}
-                onChange={(e) => setSelectedSeason(e.target.value)}
-                className="bg-transparent text-sm font-bold text-stone-700 focus:outline-none"
+        <div className="flex flex-col gap-6 mb-8">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex bg-stone-200 p-1 rounded-2xl w-full sm:w-fit">
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className={cn(
+                  "flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-3 sm:py-2.5 rounded-xl text-sm font-bold transition-all min-h-[44px]",
+                  activeTab === 'dashboard' ? "bg-white text-emerald-700 shadow-sm" : "text-stone-600 hover:text-stone-900"
+                )}
               >
-                {availableSeasons.map(s => <option key={s} value={s}>{s} Season</option>)}
-              </select>
-              <div className="w-px h-4 bg-stone-200 mx-1"></div>
-              <select
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
-                className="bg-transparent text-sm font-bold text-stone-700 focus:outline-none"
+                <BarChart3 className="w-4 h-4" />
+                {t.dashboard}
+              </button>
+              <button
+                onClick={() => setActiveTab('records')}
+                className={cn(
+                  "flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-3 sm:py-2.5 rounded-xl text-sm font-bold transition-all min-h-[44px]",
+                  activeTab === 'records' ? "bg-white text-emerald-700 shadow-sm" : "text-stone-600 hover:text-stone-900"
+                )}
               >
-                <option value="all">All Months</option>
-                {Array.from({ length: 12 }, (_, i) => (
-                  <option key={i + 1} value={i + 1}>{format(new Date(2000, i, 1), 'MMMM')}</option>
-                ))}
-              </select>
+                <List className="w-4 h-4" />
+                {t.records}
+              </button>
             </div>
 
             <button
               onClick={() => setIsModalOpen(true)}
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-emerald-100"
+              className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-4 sm:py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-emerald-100 min-h-[48px] w-full sm:w-fit active:scale-[0.98]"
             >
               <Plus className="w-5 h-5" />
-              Add Harvest
+              {t.addHarvest}
             </button>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 bg-white p-3 rounded-2xl border border-stone-200 shadow-sm">
+            <div className="flex items-center gap-3 flex-1">
+              <Filter className="w-4 h-4 text-stone-400 shrink-0" />
+              <div className="grid grid-cols-2 gap-2 w-full">
+                <select
+                  value={selectedSeason}
+                  onChange={(e) => setSelectedSeason(e.target.value)}
+                  className="bg-stone-50 px-3 py-2 rounded-lg text-sm font-bold text-stone-700 focus:outline-none border border-stone-100 min-h-[40px]"
+                >
+                  {availableSeasons.map(s => <option key={s} value={s}>{s} {t.season}</option>)}
+                </select>
+                <select
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
+                  className="bg-stone-50 px-3 py-2 rounded-lg text-sm font-bold text-stone-700 focus:outline-none border border-stone-100 min-h-[40px]"
+                >
+                  <option value="all">{t.allMonths}</option>
+                  {Array.from({ length: 12 }, (_, i) => (
+                    <option key={i + 1} value={i + 1}>{format(new Date(2000, i, 1), 'MMMM', { locale: dateLocale })}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </div>
         </div>
 
         {activeTab === 'dashboard' ? (
-          <div className="space-y-8">
+          <div className="space-y-6 sm:space-y-8">
             {/* Summary Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm hover:shadow-md transition-shadow">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+              <div className="bg-white p-5 sm:p-6 rounded-3xl border border-stone-200 shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center gap-4 mb-4">
-                  <div className="p-3 bg-emerald-50 rounded-2xl">
+                  <div className="p-3 bg-emerald-50 rounded-2xl shrink-0">
                     <Package className="w-6 h-6 text-emerald-600" />
                   </div>
-                  <div>
-                    <h3 className="font-semibold text-stone-500 text-sm uppercase tracking-wider">Season Yield ({selectedSeason})</h3>
-                    <p className="text-2xl font-bold text-stone-900">{convertToQuintalKg(summaries.seasonTotalKg)}</p>
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-stone-400 text-[10px] sm:text-xs uppercase tracking-widest truncate">{t.seasonYield} ({selectedSeason})</h3>
+                    <p className="text-xl sm:text-2xl font-bold text-stone-900 truncate">{convertToQuintalKg(summaries.seasonTotalKg)}</p>
                   </div>
                 </div>
-                <div className="w-full bg-stone-100 h-2 rounded-full overflow-hidden">
+                <div className="w-full bg-stone-100 h-1.5 rounded-full overflow-hidden">
                   <div className="bg-emerald-500 h-full w-full opacity-20"></div>
                 </div>
               </div>
 
-              <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm hover:shadow-md transition-shadow">
+              <div className="bg-white p-5 sm:p-6 rounded-3xl border border-stone-200 shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center gap-4 mb-4">
-                  <div className="p-3 bg-blue-50 rounded-2xl">
+                  <div className="p-3 bg-blue-50 rounded-2xl shrink-0">
                     <Calendar className="w-6 h-6 text-blue-600" />
                   </div>
-                  <div>
-                    <h3 className="font-semibold text-stone-500 text-sm uppercase tracking-wider">
-                      Monthly Summary {selectedMonth !== 'all' ? `(${format(new Date(2000, selectedMonth - 1, 1), 'MMM')})` : ''}
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-stone-400 text-[10px] sm:text-xs uppercase tracking-widest truncate">
+                      {t.monthlySummary} {selectedMonth !== 'all' ? `(${format(new Date(2000, selectedMonth - 1, 1), 'MMM', { locale: dateLocale })})` : ''}
                     </h3>
-                    <p className="text-2xl font-bold text-stone-900">
-                      {selectedMonth === 'all' ? 'Select a month' : convertToQuintalKg(summaries.monthlyTotalKg)}
+                    <p className="text-xl sm:text-2xl font-bold text-stone-900 truncate">
+                      {selectedMonth === 'all' ? t.selectMonth : convertToQuintalKg(summaries.monthlyTotalKg)}
                     </p>
                   </div>
                 </div>
-                <div className="w-full bg-stone-100 h-2 rounded-full overflow-hidden">
+                <div className="w-full bg-stone-100 h-1.5 rounded-full overflow-hidden">
                   <div className="bg-blue-500 h-full w-full opacity-20"></div>
                 </div>
               </div>
 
-              <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm hover:shadow-md transition-shadow">
+              <div className="bg-white p-5 sm:p-6 rounded-3xl border border-stone-200 shadow-sm hover:shadow-md transition-shadow border-l-4 border-l-emerald-500 sm:col-span-2 lg:col-span-1">
                 <div className="flex items-center gap-4 mb-4">
-                  <div className="p-3 bg-stone-50 rounded-2xl">
-                    <List className="w-6 h-6 text-stone-600" />
+                  <div className="p-3 bg-emerald-50 rounded-2xl shrink-0">
+                    <TrendingUp className="w-6 h-6 text-emerald-600" />
                   </div>
-                  <div>
-                    <h3 className="font-semibold text-stone-500 text-sm uppercase tracking-wider">Total Entries</h3>
-                    <p className="text-2xl font-bold text-stone-900">{summaries.totalEntries} Records</p>
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-stone-400 text-[10px] sm:text-xs uppercase tracking-widest truncate">{t.nextSeasonPrediction}</h3>
+                    <p className="text-xl sm:text-2xl font-bold text-stone-900 truncate">{convertToQuintalKg(Math.round(summaries.predictedYieldKg))}</p>
                   </div>
                 </div>
-                <div className="w-full bg-stone-100 h-2 rounded-full overflow-hidden">
-                  <div className="bg-stone-500 h-full w-full opacity-20"></div>
+                <div className="w-full bg-stone-100 h-1.5 rounded-full overflow-hidden">
+                  <div className="bg-emerald-500 h-full w-full opacity-40"></div>
                 </div>
+                <p className="text-[10px] text-stone-400 mt-2 italic">{t.predictionNote}</p>
               </div>
             </div>
 
             {/* Charts Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm">
-                <h3 className="text-lg font-bold text-stone-900 mb-6 flex items-center gap-2">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
+              <div className="bg-white p-5 sm:p-6 rounded-3xl border border-stone-200 shadow-sm">
+                <h3 className="text-base sm:text-lg font-bold text-stone-900 mb-6 flex items-center gap-2">
                   <TrendingUp className="w-5 h-5 text-emerald-600" />
-                  Season Yield Trend
+                  {t.seasonYieldTrend}
                 </h3>
-                <div className="h-[350px]">
+                <div className="h-[300px] sm:h-[450px]">
                   <Bar 
                     data={seasonChartData} 
                     options={{ 
                       responsive: true, 
                       maintainAspectRatio: false,
+                      layout: {
+                        padding: {
+                          top: 30
+                        }
+                      },
                       plugins: { 
                         legend: { display: false },
                         tooltip: {
                           callbacks: {
                             label: (context: any) => {
                               const totalKg = context.dataset.fullData[context.dataIndex];
-                              return `Yield: ${convertToQuintalKg(totalKg)}`;
+                              return `${t.yield}: ${convertToQuintalKg(totalKg)}`;
                             }
                           }
                         },
                         datalabels: {
                           anchor: 'end',
                           align: 'top',
+                          offset: 4,
                           formatter: (value, context: any) => {
                             const totalKg = context.dataset.fullData[context.dataIndex];
                             return totalKg > 0 ? formatShortYield(totalKg) : '';
                           },
-                          font: { weight: 'bold', size: 12 },
-                          color: '#065f46'
+                          font: { weight: 'bold', size: window.innerWidth < 640 ? 10 : 12 },
+                          color: '#065f46',
+                          clip: false
                         }
                       },
                       scales: { 
                         y: { 
                           beginAtZero: true, 
+                          grace: '15%',
                           grid: { color: '#f5f5f4' },
-                          title: { display: true, text: 'Yield (Quintals)', font: { weight: 'bold' } }
+                          title: { display: true, text: t.seasonYieldQuintals, font: { weight: 'bold', size: 10 } }
                         }, 
-                        x: { grid: { display: false } } 
+                        x: { 
+                          grid: { display: false },
+                          ticks: { font: { size: 10 } }
+                        } 
                       }
                     }} 
                   />
                 </div>
               </div>
 
-              <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm">
-                <h3 className="text-lg font-bold text-stone-900 mb-6 flex items-center gap-2">
+              <div className="bg-white p-5 sm:p-6 rounded-3xl border border-stone-200 shadow-sm">
+                <h3 className="text-base sm:text-lg font-bold text-stone-900 mb-6 flex items-center gap-2">
                   <Calendar className="w-5 h-5 text-blue-600" />
-                  Monthly Distribution ({selectedSeason})
+                  {t.monthlyDistribution} ({selectedSeason})
                 </h3>
-                <div className="h-[350px]">
+                <div className="h-[300px] sm:h-[450px]">
                   <Bar 
                     data={monthlyChartData} 
                     options={{ 
                       responsive: true, 
                       maintainAspectRatio: false,
+                      layout: {
+                        padding: {
+                          top: 30
+                        }
+                      },
                       plugins: { 
                         legend: { display: false },
                         tooltip: {
                           callbacks: {
                             label: (context: any) => {
                               const totalKg = context.dataset.fullData[context.dataIndex];
-                              return `Yield: ${convertToQuintalKg(totalKg)}`;
+                              return `${t.yield}: ${convertToQuintalKg(totalKg)}`;
                             }
                           }
                         },
                         datalabels: {
                           anchor: 'end',
                           align: 'top',
+                          offset: 4,
                           formatter: (value, context: any) => {
                             const totalKg = context.dataset.fullData[context.dataIndex];
                             return totalKg > 0 ? formatShortYield(totalKg) : '';
                           },
-                          font: { weight: 'bold', size: 10 },
-                          color: '#1e40af'
+                          font: { weight: 'bold', size: window.innerWidth < 640 ? 9 : 11 },
+                          color: '#1e40af',
+                          clip: false
                         }
                       },
                       scales: { 
                         y: { 
                           beginAtZero: true, 
+                          grace: '15%',
                           grid: { color: '#f5f5f4' },
-                          title: { display: true, text: 'Yield (Quintals)', font: { weight: 'bold' } }
+                          title: { display: true, text: t.monthlyYieldQuintals, font: { weight: 'bold', size: 10 } }
                         }, 
-                        x: { grid: { display: false } } 
+                        x: { 
+                          grid: { display: false },
+                          ticks: { font: { size: 10 } }
+                        } 
                       }
                     }} 
                   />
@@ -880,23 +945,24 @@ function YieldTrackerApp() {
           </div>
         ) : (
           <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-bold text-stone-900">Harvest Records</h2>
-              <p className="text-stone-500 text-sm font-medium">
-                Showing {filteredRecords.length} entries for {selectedMonth === 'all' ? 'All Months' : format(new Date(2000, selectedMonth - 1, 1), 'MMMM')} {selectedSeason} Season
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <h2 className="text-xl sm:text-2xl font-bold text-stone-900">{t.records}</h2>
+              <p className="text-stone-500 text-xs sm:text-sm font-medium">
+                {t.recordsCount}: {filteredRecords.length} ({selectedMonth === 'all' ? t.allMonths : format(new Date(2000, selectedMonth - 1, 1), 'MMMM', { locale: dateLocale })} {selectedSeason} {t.season})
               </p>
             </div>
 
-            <div className="bg-white rounded-3xl border border-stone-200 shadow-sm overflow-hidden">
+            {/* Desktop View: Table */}
+            <div className="hidden sm:block bg-white rounded-3xl border border-stone-200 shadow-sm overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-stone-50 border-b border-stone-200">
-                      <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-wider">Date</th>
-                      <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-wider">Yield</th>
-                      <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-wider">Price/Kg</th>
-                      <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-wider">Notes</th>
-                      <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-wider text-right">Actions</th>
+                      <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-wider">{t.date}</th>
+                      <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-wider">{t.yield}</th>
+                      <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-wider">{t.price}</th>
+                      <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-wider">{t.notes}</th>
+                      <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-wider text-right">{t.actions}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100">
@@ -904,11 +970,10 @@ function YieldTrackerApp() {
                       filteredRecords.map((record) => (
                         <tr key={record.id} className="hover:bg-emerald-50/30 transition-colors group">
                           <td className="px-6 py-4 whitespace-nowrap text-stone-600 font-medium">
-                            {format(parseISO(record.date), 'dd MMM yyyy')}
+                            {format(parseISO(record.date), 'dd MMM yyyy', { locale: dateLocale })}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className="font-bold text-stone-900">{convertToQuintalKg(record.totalKg)}</span>
-                            <div className="text-xs text-stone-400">{record.totalKg} kg total</div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-stone-600">
                             ₹{record.price}
@@ -921,14 +986,14 @@ function YieldTrackerApp() {
                               <button
                                 onClick={() => handleEdit(record)}
                                 className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
-                                title="Edit Record"
+                                title={t.editHarvest}
                               >
                                 <Edit2 className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={() => handleDelete(record.id)}
                                 className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition-colors"
-                                title="Delete Record"
+                                title={t.deleteRecord}
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -941,7 +1006,7 @@ function YieldTrackerApp() {
                         <td colSpan={5} className="px-6 py-12 text-center text-stone-400">
                           <div className="flex flex-col items-center gap-2">
                             <Package className="w-8 h-8 opacity-20" />
-                            <p>No harvest records found for the selected filters.</p>
+                            <p>{t.noRecords}</p>
                           </div>
                         </td>
                       </tr>
@@ -950,43 +1015,98 @@ function YieldTrackerApp() {
                 </table>
               </div>
             </div>
+
+            {/* Mobile View: Cards */}
+            <div className="sm:hidden space-y-4">
+              {filteredRecords.length > 0 ? (
+                filteredRecords.map((record) => (
+                  <div key={record.id} className="bg-white p-5 rounded-3xl border border-stone-200 shadow-sm space-y-4">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1">{t.date}</p>
+                        <p className="font-bold text-stone-900">{format(parseISO(record.date), 'dd MMM yyyy', { locale: dateLocale })}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleEdit(record)}
+                          className="p-3 bg-blue-50 text-blue-600 rounded-2xl active:scale-90 transition-transform"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(record.id)}
+                          className="p-3 bg-red-50 text-red-600 rounded-2xl active:scale-90 transition-transform"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 pt-4 border-t border-stone-100">
+                      <div>
+                        <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1">{t.yield}</p>
+                        <p className="font-bold text-emerald-700">{convertToQuintalKg(record.totalKg)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1">{t.price}</p>
+                        <p className="font-bold text-stone-900">₹{record.price}</p>
+                      </div>
+                    </div>
+
+                    {record.notes && (
+                      <div className="pt-4 border-t border-stone-100">
+                        <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1">{t.notes}</p>
+                        <p className="text-sm text-stone-600 italic leading-relaxed">{record.notes}</p>
+                      </div>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <div className="bg-white p-12 rounded-3xl border border-stone-200 text-center text-stone-400">
+                  <div className="flex flex-col items-center gap-2">
+                    <Package className="w-8 h-8 opacity-20" />
+                    <p>{t.noRecords}</p>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </main>
 
       {/* Add/Edit Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-[2rem] w-full max-w-lg shadow-2xl border border-stone-100 overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="px-8 py-6 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">
-              <h2 className="text-xl font-bold text-stone-900">
-                {editingRecord ? 'Edit Harvest Record' : 'Add New Harvest'}
+        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+          <div className="bg-white rounded-t-[2rem] sm:rounded-[2rem] w-full max-w-lg shadow-2xl border border-stone-100 overflow-hidden animate-in slide-in-from-bottom sm:zoom-in duration-300 max-h-[90vh] flex flex-col">
+            <div className="px-6 sm:px-8 py-5 sm:py-6 border-b border-stone-100 flex justify-between items-center bg-stone-50/50 shrink-0">
+              <h2 className="text-lg sm:text-xl font-bold text-stone-900">
+                {editingRecord ? t.editHarvest : t.addNewHarvest}
               </h2>
               <button 
                 onClick={resetForm}
-                className="p-2 hover:bg-stone-200 rounded-full transition-colors"
+                className="p-2 hover:bg-stone-200 rounded-full transition-colors active:scale-90"
               >
                 <X className="w-5 h-5 text-stone-500" />
               </button>
             </div>
             
-            <form onSubmit={handleSubmit} className="p-8 space-y-6">
-              <div className="grid grid-cols-1 gap-6">
+            <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-5 sm:space-y-6 overflow-y-auto">
+              <div className="grid grid-cols-1 gap-5 sm:gap-6">
                 <div>
-                  <label className="block text-sm font-semibold text-stone-600 mb-2 uppercase tracking-wider">Harvest Date</label>
+                  <label className="block text-[10px] sm:text-xs font-bold text-stone-400 mb-2 uppercase tracking-widest">{t.date}</label>
                   <input
                     type="date"
                     name="date"
                     required
                     value={formData.date}
                     onChange={handleInputChange}
-                    className="w-full px-4 py-3 rounded-2xl border border-stone-200 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all bg-stone-50"
+                    className="w-full px-4 py-4 sm:py-3 rounded-2xl border border-stone-200 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all bg-stone-50 text-base min-h-[48px]"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-semibold text-stone-600 mb-2 uppercase tracking-wider">Quintals</label>
+                    <label className="block text-[10px] sm:text-xs font-bold text-stone-400 mb-2 uppercase tracking-widest">{t.quintal}</label>
                     <input
                       type="number"
                       name="quintal"
@@ -994,11 +1114,11 @@ function YieldTrackerApp() {
                       required
                       value={formData.quintal}
                       onChange={handleInputChange}
-                      className="w-full px-4 py-3 rounded-2xl border border-stone-200 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all bg-stone-50"
+                      className="w-full px-4 py-4 sm:py-3 rounded-2xl border border-stone-200 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all bg-stone-50 text-base min-h-[48px]"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-stone-600 mb-2 uppercase tracking-wider">Kilograms</label>
+                    <label className="block text-[10px] sm:text-xs font-bold text-stone-400 mb-2 uppercase tracking-widest">{t.kg}</label>
                     <input
                       type="number"
                       name="kg"
@@ -1007,13 +1127,13 @@ function YieldTrackerApp() {
                       required
                       value={formData.kg}
                       onChange={handleInputChange}
-                      className="w-full px-4 py-3 rounded-2xl border border-stone-200 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all bg-stone-50"
+                      className="w-full px-4 py-4 sm:py-3 rounded-2xl border border-stone-200 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all bg-stone-50 text-base min-h-[48px]"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-stone-600 mb-2 uppercase tracking-wider">Price per Kg (₹)</label>
+                  <label className="block text-[10px] sm:text-xs font-bold text-stone-400 mb-2 uppercase tracking-widest">{t.pricePerQuintal}</label>
                   <input
                     type="number"
                     name="price"
@@ -1022,42 +1142,42 @@ function YieldTrackerApp() {
                     required
                     value={formData.price}
                     onChange={handleInputChange}
-                    className="w-full px-4 py-3 rounded-2xl border border-stone-200 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all bg-stone-50"
+                    className="w-full px-4 py-4 sm:py-3 rounded-2xl border border-stone-200 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all bg-stone-50 text-base min-h-[48px]"
                   />
                 </div>
 
                 <div className="bg-emerald-50 p-4 rounded-2xl flex items-center justify-between border border-emerald-100">
-                  <span className="text-sm font-semibold text-emerald-700 uppercase tracking-wider">Total Weight:</span>
-                  <span className="text-lg font-bold text-emerald-800">
+                  <span className="text-[10px] sm:text-xs font-bold text-emerald-700 uppercase tracking-widest">{t.yield}:</span>
+                  <span className="text-base sm:text-lg font-bold text-emerald-800">
                     {convertToQuintalKg((parseInt(formData.quintal.toString()) || 0) * 100 + (parseInt(formData.kg.toString()) || 0))}
                   </span>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-stone-600 mb-2 uppercase tracking-wider">Notes (Optional)</label>
+                  <label className="block text-[10px] sm:text-xs font-bold text-stone-400 mb-2 uppercase tracking-widest">{t.notes}</label>
                   <textarea
                     name="notes"
                     value={formData.notes}
                     onChange={handleInputChange}
-                    className="w-full px-4 py-3 rounded-2xl border border-stone-200 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all h-24 resize-none bg-stone-50"
-                    placeholder="Add any details about the harvest..."
+                    className="w-full px-4 py-4 sm:py-3 rounded-2xl border border-stone-200 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all h-24 resize-none bg-stone-50 text-base"
+                    placeholder="..."
                   />
                 </div>
               </div>
 
-              <div className="flex gap-4 pt-4">
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 pt-4">
                 <button
                   type="button"
                   onClick={resetForm}
-                  className="flex-1 px-6 py-4 rounded-2xl border border-stone-200 text-stone-600 font-bold hover:bg-stone-50 transition-all"
+                  className="order-2 sm:order-1 flex-1 px-6 py-4 rounded-2xl border border-stone-200 text-stone-600 font-bold hover:bg-stone-50 transition-all min-h-[48px] active:scale-95"
                 >
-                  Cancel
+                  {t.cancel}
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-6 py-4 rounded-2xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 shadow-lg shadow-emerald-200 transition-all active:scale-[0.98]"
+                  className="order-1 sm:order-2 flex-1 px-6 py-4 rounded-2xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 shadow-lg shadow-emerald-200 transition-all active:scale-[0.98] min-h-[48px]"
                 >
-                  {editingRecord ? 'Update Record' : 'Save Record'}
+                  {editingRecord ? t.updateRecord : t.saveRecord}
                 </button>
               </div>
             </form>
@@ -1066,28 +1186,28 @@ function YieldTrackerApp() {
       )}
       {/* Delete Confirmation Modal */}
       {recordToDelete && (
-        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
-          <div className="bg-white rounded-[2rem] w-full max-w-sm shadow-2xl border border-stone-100 overflow-hidden animate-in fade-in zoom-in duration-200">
+        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-[60]">
+          <div className="bg-white rounded-t-[2rem] sm:rounded-[2rem] w-full max-w-sm shadow-2xl border border-stone-100 overflow-hidden animate-in slide-in-from-bottom sm:zoom-in duration-300">
             <div className="p-8 text-center">
               <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
                 <AlertTriangle className="w-8 h-8 text-red-500" />
               </div>
-              <h3 className="text-xl font-bold text-stone-900 mb-2">Confirm Delete</h3>
-              <p className="text-stone-500 mb-8">
-                Are you sure you want to delete this record? This action cannot be undone.
+              <h3 className="text-xl font-bold text-stone-900 mb-2">{t.deleteRecord}</h3>
+              <p className="text-stone-500 mb-8 text-sm leading-relaxed">
+                {t.deleteConfirm}
               </p>
-              <div className="flex gap-3">
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
                 <button
                   onClick={() => setRecordToDelete(null)}
-                  className="flex-1 px-6 py-3 rounded-xl border border-stone-200 text-stone-600 font-bold hover:bg-stone-50 transition-all"
+                  className="order-2 sm:order-1 flex-1 px-6 py-4 rounded-2xl border border-stone-200 text-stone-600 font-bold hover:bg-stone-50 transition-all min-h-[48px] active:scale-95"
                 >
-                  Cancel
+                  {t.cancel}
                 </button>
                 <button
                   onClick={confirmDelete}
-                  className="flex-1 px-6 py-3 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 shadow-lg shadow-red-200 transition-all active:scale-[0.98]"
+                  className="order-1 sm:order-2 flex-1 px-6 py-4 rounded-2xl bg-red-600 text-white font-bold hover:bg-red-700 shadow-lg shadow-red-200 transition-all active:scale-[0.98] min-h-[48px]"
                 >
-                  Delete
+                  {t.delete}
                 </button>
               </div>
             </div>
