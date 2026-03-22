@@ -41,12 +41,38 @@
         }
       },
       "required": ["date", "quintal", "kg", "totalKg", "price", "uid", "createdAt"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User profile information.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The unique identifier for the user."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The email address of the user."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The timestamp when the user was created."
+        }
+      },
+      "required": ["uid", "email", "createdAt"]
     }
   },
   "firestore": {
     "arecaData": {
       "schema": "YieldRecord",
       "description": "Collection of harvest records."
+    },
+    "users": {
+      "schema": "User",
+      "description": "Collection of user profiles."
     }
   }
 }

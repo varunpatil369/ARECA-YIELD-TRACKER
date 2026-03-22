@@ -62,6 +62,14 @@ service cloud.firestore {
     // Domain Validators
     // ===============================================================
     
+    function isValidUser(data) {
+      return hasRequiredFields(['uid', 'email', 'createdAt']) &&
+             hasOnlyAllowedFields(['uid', 'email', 'createdAt']) &&
+             data.uid is string && data.uid == request.auth.uid &&
+             data.email is string && data.email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$") &&
+             data.createdAt is timestamp;
+    }
+
     function isValidYieldRecord(data) {
       return hasRequiredFields(['date', 'quintal', 'kg', 'totalKg', 'price', 'uid', 'createdAt']) &&
              hasOnlyAllowedFields(['date', 'quintal', 'kg', 'totalKg', 'price', 'uid', 'createdAt', 'notes']) &&
@@ -92,7 +100,9 @@ service cloud.firestore {
     }
     
     match /users/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.createdAt == resource.data.createdAt;
     }
   }
 }

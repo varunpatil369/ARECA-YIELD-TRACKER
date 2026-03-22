@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import { getAuth, setPersistence, browserLocalPersistence, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Use environment variables if available, otherwise fallback to the config file
@@ -18,3 +18,8 @@ const config = {
 const app = initializeApp(config);
 export const db = getFirestore(app, config.firestoreDatabaseId);
 export const auth = getAuth(app);
+
+// Set persistence to local to ensure the user stays logged in across sessions
+setPersistence(auth, browserLocalPersistence).catch((error) => {
+  console.error("Auth persistence error:", error);
+});
