@@ -210,6 +210,27 @@ interface YieldRecord {
 // --- Components ---
 
 function YieldTrackerApp() {
+  // --- Season Logic ---
+  const getSeasonYear = (dateStr: string) => {
+    const date = parseISO(dateStr);
+    const year = getYear(date);
+    const month = getMonth(date); // 0-indexed, June is 5
+    
+    if (month >= 5) { // June or later
+      return `${year}–${year + 1}`;
+    } else { // Before June (Jan-May)
+      return `${year - 1}–${year}`;
+    }
+  };
+
+  const getCurrentSeason = () => {
+    const now = new Date();
+    const year = getYear(now);
+    const month = getMonth(now);
+    if (month >= 5) return `${year}–${year + 1}`;
+    return `${year - 1}–${year}`;
+  };
+
   // Auth State
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
@@ -226,7 +247,7 @@ function YieldTrackerApp() {
   const [recordToDelete, setRecordToDelete] = useState<string | null>(null);
 
   // Filter State
-  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [selectedSeason, setSelectedSeason] = useState<string>(getCurrentSeason());
   const [selectedMonth, setSelectedMonth] = useState<number | 'all'>('all');
 
   // Form State
@@ -431,49 +452,48 @@ function YieldTrackerApp() {
   // Filtered Records for Table
   const filteredRecords = useMemo(() => {
     return records.filter(r => {
-      const date = parseISO(r.date);
-      const yearMatch = getYear(date) === selectedYear;
-      const monthMatch = selectedMonth === 'all' || (getMonth(date) + 1) === selectedMonth;
-      return yearMatch && monthMatch;
+      const seasonMatch = getSeasonYear(r.date) === selectedSeason;
+      const monthMatch = selectedMonth === 'all' || (getMonth(parseISO(r.date)) + 1) === selectedMonth;
+      return seasonMatch && monthMatch;
     }).sort((a, b) => b.date.localeCompare(a.date));
-  }, [records, selectedYear, selectedMonth]);
+  }, [records, selectedSeason, selectedMonth]);
 
   // Dashboard Summaries
   const summaries = useMemo(() => {
-    // Yearly Summary: Total for selected year
-    const yearlyRecords = records.filter(r => getYear(parseISO(r.date)) === selectedYear);
-    const yearlyTotalKg = yearlyRecords.reduce((sum, r) => sum + r.totalKg, 0);
+    // Season Summary: Total for selected season
+    const seasonRecords = records.filter(r => getSeasonYear(r.date) === selectedSeason);
+    const seasonTotalKg = seasonRecords.reduce((sum, r) => sum + r.totalKg, 0);
     
-    // Monthly Summary: Filter by selectedYear AND selectedMonth
+    // Monthly Summary: Filter by selectedSeason AND selectedMonth
     let monthlyTotalKg = 0;
     if (selectedMonth !== 'all') {
-      monthlyTotalKg = yearlyRecords
+      monthlyTotalKg = seasonRecords
         .filter(r => (getMonth(parseISO(r.date)) + 1) === selectedMonth)
         .reduce((sum, r) => sum + r.totalKg, 0);
     }
 
     return { 
-      yearlyTotalKg, 
+      seasonTotalKg, 
       monthlyTotalKg,
       totalEntries: records.length 
     };
-  }, [records, selectedYear, selectedMonth]);
+  }, [records, selectedSeason, selectedMonth]);
 
-  // Chart Data: Yearly Trend
-  const yearlyChartData = useMemo(() => {
-    const yearsMap: { [year: string]: number } = {};
+  // Chart Data: Season Trend
+  const seasonChartData = useMemo(() => {
+    const seasonsMap: { [season: string]: number } = {};
     records.forEach(r => {
-      const year = getYear(parseISO(r.date)).toString();
-      yearsMap[year] = (yearsMap[year] || 0) + r.totalKg;
+      const season = getSeasonYear(r.date);
+      seasonsMap[season] = (seasonsMap[season] || 0) + r.totalKg;
     });
 
-    const sortedYears = Object.keys(yearsMap).sort();
+    const sortedSeasons = Object.keys(seasonsMap).sort();
     return {
-      labels: sortedYears,
+      labels: sortedSeasons,
       datasets: [{
-        label: 'Yearly Yield (Quintals)',
-        data: sortedYears.map(y => Math.round(yearsMap[y] / 100)),
-        fullData: sortedYears.map(y => yearsMap[y]),
+        label: 'Season Yield (Quintals)',
+        data: sortedSeasons.map(s => Math.round(seasonsMap[s] / 100)),
+        fullData: sortedSeasons.map(s => seasonsMap[s]),
         backgroundColor: 'rgba(16, 185, 129, 0.7)',
         borderColor: 'rgb(16, 185, 129)',
         borderWidth: 2,
@@ -483,18 +503,24 @@ function YieldTrackerApp() {
     };
   }, [records]);
 
-  // Chart Data: Monthly Distribution for Selected Year
+  // Chart Data: Monthly Distribution for Selected Season
   const monthlyChartData = useMemo(() => {
+    // Season months: Jun, Jul, Aug, Sep, Oct, Nov, Dec, Jan, Feb, Mar, Apr, May
+    const seasonMonths = [5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4];
     const monthsMap = Array(12).fill(0);
+    
     records
-      .filter(r => getYear(parseISO(r.date)) === selectedYear)
+      .filter(r => getSeasonYear(r.date) === selectedSeason)
       .forEach(r => {
         const monthIndex = getMonth(parseISO(r.date));
-        monthsMap[monthIndex] += r.totalKg;
+        const displayIndex = seasonMonths.indexOf(monthIndex);
+        if (displayIndex !== -1) {
+          monthsMap[displayIndex] += r.totalKg;
+        }
       });
 
     return {
-      labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+      labels: ['Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May'],
       datasets: [{
         label: 'Monthly Yield (Quintals)',
         data: monthsMap.map(kg => Math.round(kg / 100)),
@@ -506,14 +532,14 @@ function YieldTrackerApp() {
         barThickness: 40,
       }]
     };
-  }, [records, selectedYear]);
+  }, [records, selectedSeason]);
 
-  // Unique Years for Dropdown
-  const availableYears = useMemo(() => {
-    const years: number[] = Array.from(new Set(records.map(r => getYear(parseISO(r.date)))));
-    const currentYear = new Date().getFullYear();
-    if (!years.includes(currentYear)) years.push(currentYear);
-    return years.sort((a, b) => b - a);
+  // Unique Seasons for Dropdown
+  const availableSeasons = useMemo(() => {
+    const seasons: string[] = Array.from(new Set(records.map(r => getSeasonYear(r.date))));
+    const currentSeason = getCurrentSeason();
+    if (!seasons.includes(currentSeason)) seasons.push(currentSeason);
+    return seasons.sort((a, b) => b.localeCompare(a));
   }, [records]);
 
   // --- Render Login Page ---
@@ -676,11 +702,11 @@ function YieldTrackerApp() {
             <div className="flex items-center gap-2 bg-white border border-stone-200 rounded-xl px-3 py-1.5">
               <Filter className="w-4 h-4 text-stone-400" />
               <select
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                value={selectedSeason}
+                onChange={(e) => setSelectedSeason(e.target.value)}
                 className="bg-transparent text-sm font-bold text-stone-700 focus:outline-none"
               >
-                {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+                {availableSeasons.map(s => <option key={s} value={s}>{s} Season</option>)}
               </select>
               <div className="w-px h-4 bg-stone-200 mx-1"></div>
               <select
@@ -715,8 +741,8 @@ function YieldTrackerApp() {
                     <Package className="w-6 h-6 text-emerald-600" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-stone-500 text-sm uppercase tracking-wider">Yearly Yield ({selectedYear})</h3>
-                    <p className="text-2xl font-bold text-stone-900">{convertToQuintalKg(summaries.yearlyTotalKg)}</p>
+                    <h3 className="font-semibold text-stone-500 text-sm uppercase tracking-wider">Season Yield ({selectedSeason})</h3>
+                    <p className="text-2xl font-bold text-stone-900">{convertToQuintalKg(summaries.seasonTotalKg)}</p>
                   </div>
                 </div>
                 <div className="w-full bg-stone-100 h-2 rounded-full overflow-hidden">
@@ -764,11 +790,11 @@ function YieldTrackerApp() {
               <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm">
                 <h3 className="text-lg font-bold text-stone-900 mb-6 flex items-center gap-2">
                   <TrendingUp className="w-5 h-5 text-emerald-600" />
-                  Yearly Yield Trend
+                  Season Yield Trend
                 </h3>
                 <div className="h-[350px]">
                   <Bar 
-                    data={yearlyChartData} 
+                    data={seasonChartData} 
                     options={{ 
                       responsive: true, 
                       maintainAspectRatio: false,
@@ -809,7 +835,7 @@ function YieldTrackerApp() {
               <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm">
                 <h3 className="text-lg font-bold text-stone-900 mb-6 flex items-center gap-2">
                   <Calendar className="w-5 h-5 text-blue-600" />
-                  Monthly Distribution ({selectedYear})
+                  Monthly Distribution ({selectedSeason})
                 </h3>
                 <div className="h-[350px]">
                   <Bar 
@@ -857,7 +883,7 @@ function YieldTrackerApp() {
             <div className="flex items-center justify-between">
               <h2 className="text-2xl font-bold text-stone-900">Harvest Records</h2>
               <p className="text-stone-500 text-sm font-medium">
-                Showing {filteredRecords.length} entries for {selectedMonth === 'all' ? 'All Months' : format(new Date(2000, selectedMonth - 1, 1), 'MMMM')} {selectedYear}
+                Showing {filteredRecords.length} entries for {selectedMonth === 'all' ? 'All Months' : format(new Date(2000, selectedMonth - 1, 1), 'MMMM')} {selectedSeason} Season
               </p>
             </div>
 
