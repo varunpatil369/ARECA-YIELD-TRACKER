@@ -838,6 +838,35 @@ const Dashboard: React.FC<DashboardProps> = ({ user, language, toggleLanguage })
         {activeTab === 'calculator' && <WetToDryCalculator t={t} />}
       </main>
 
+      {/* Personal Profile Section */}
+      <div className="max-w-7xl mx-auto px-4 pb-12 flex flex-col items-center">
+        <div className="bg-white rounded-xl shadow-sm border border-stone-100 p-3 max-w-md w-full animate-in fade-in slide-in-from-bottom-4 duration-700">
+          <div className="flex flex-col items-center text-center space-y-1">
+            <h3 className="text-sm font-bold text-stone-900">[ 👤 Vikas Patil S R ]</h3>
+            <p className="text-[11px] text-stone-500 leading-relaxed">
+              Agriculturist 🌴 | Developer 💻 | Data Analytics Enthusiast 📊 | Investor 💼
+            </p>
+          </div>
+        </div>
+
+        {/* Contact Section */}
+        <div className="bg-white rounded-xl shadow-sm border border-stone-100 p-3 max-w-md w-full mt-3 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+          <div className="flex flex-col items-center text-center space-y-2">
+            <p className="text-[11px] font-bold text-stone-900">
+              📞 If you want this application, please contact me
+            </p>
+            <div className="flex flex-col gap-1">
+              <a href="tel:7760214952" className="text-[11px] text-stone-600 hover:text-emerald-600 transition-colors flex items-center justify-center gap-2">
+                📱 7760214952
+              </a>
+              <a href="mailto:vikkipatil132@gmail.com" className="text-[11px] text-stone-600 hover:text-emerald-600 transition-colors flex items-center justify-center gap-2">
+                📧 vikkipatil132@gmail.com
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Floating Action Button for Adding Harvest - REMOVED for old style */}
 
       {isModalOpen && (
