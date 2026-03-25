@@ -15,7 +15,8 @@ import {
   IndianRupee,
   Package,
   BarChart3,
-  List
+  List,
+  Download
 } from 'lucide-react';
 import {
   Chart as ChartJS,
@@ -328,6 +329,95 @@ const Dashboard: React.FC<DashboardProps> = ({ user, language, toggleLanguage })
 
     return () => unsubscribe();
   }, [user]);
+
+  const handleDownloadSeasonPDF = async () => {
+    const { jsPDF } = await import('jspdf');
+    const autoTable = (await import('jspdf-autotable')).default;
+
+    const doc = new jsPDF();
+    
+    // Filter records for the selected season
+    const seasonRecords = records.filter(r => getSeasonYear(r.date) === selectedSeason);
+    
+    // Group by month
+    const groupedByMonth: { [key: string]: YieldRecord[] } = {};
+    seasonRecords.forEach(record => {
+      const monthName = format(parseISO(record.date), 'MMMM yyyy', { locale: dateLocale });
+      if (!groupedByMonth[monthName]) {
+        groupedByMonth[monthName] = [];
+      }
+      groupedByMonth[monthName].push(record);
+    });
+
+    // Title
+    doc.setFontSize(22);
+    doc.setTextColor(16, 185, 129); // emerald-600
+    doc.text("Arecanut Yield Report", 14, 22);
+    
+    doc.setFontSize(14);
+    doc.setTextColor(100);
+    doc.text(`${selectedSeason} Season`, 14, 32);
+
+    let currentY = 45;
+
+    // Sort months chronologically
+    const sortedMonths = Object.keys(groupedByMonth).sort((a, b) => {
+      const dateA = parseISO(groupedByMonth[a][0].date);
+      const dateB = parseISO(groupedByMonth[b][0].date);
+      return dateA.getTime() - dateB.getTime();
+    });
+
+    sortedMonths.forEach((month) => {
+      // Check for space before adding month header
+      if (currentY > 260) {
+        doc.addPage();
+        currentY = 20;
+      }
+
+      doc.setFontSize(14);
+      doc.setTextColor(50);
+      doc.text(month, 14, currentY);
+      currentY += 5;
+
+      const tableData = groupedByMonth[month]
+        .sort((a, b) => parseISO(a.date).getTime() - parseISO(b.date).getTime())
+        .map(record => [
+          format(parseISO(record.date), 'dd/MM/yyyy'),
+          formatToQK(record.totalKg),
+          `₹${record.price.toLocaleString()}`
+        ]);
+
+      autoTable(doc, {
+        startY: currentY,
+        head: [['Date', 'Yield', 'Price']],
+        body: tableData,
+        theme: 'striped',
+        headStyles: { fillColor: [16, 185, 129] },
+        margin: { left: 14, right: 14 },
+        styles: { fontSize: 10 },
+      });
+      
+      currentY = (doc as any).lastAutoTable.finalY + 15;
+    });
+
+    // Total Yield
+    const totalKg = seasonRecords.reduce((sum, r) => sum + r.totalKg, 0);
+    const q = Math.floor(totalKg / 100);
+    const k = Math.round(totalKg % 100);
+    const totalStr = `${q}Q ${k}kg`;
+
+    // Check for space for total
+    if (currentY > 270) {
+      doc.addPage();
+      currentY = 20;
+    }
+
+    doc.setFontSize(16);
+    doc.setTextColor(0);
+    doc.text(`Total Yield: ${totalStr}`, 14, currentY);
+
+    doc.save(`Arecanut_Yield_Report_${selectedSeason}.pdf`);
+  };
 
   const handleLogout = async () => {
     try {
@@ -677,6 +767,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, language, toggleLanguage })
                 </select>
                 <Filter className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400 pointer-events-none" />
               </div>
+              <button 
+                onClick={handleDownloadSeasonPDF}
+                className="flex items-center justify-center gap-2 bg-stone-900 hover:bg-stone-800 text-white font-bold px-4 py-3 rounded-xl transition-all active:scale-[0.98] whitespace-nowrap"
+                title="Download Season PDF"
+              >
+                <Download className="w-4 h-4" />
+                <span className="hidden sm:inline">Download Season PDF</span>
+              </button>
             </div>
           </div>
         </div>
